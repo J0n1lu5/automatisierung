@@ -1,11 +1,9 @@
-#%%
 
 from tinydb import TinyDB, Query
 import pandas as pd
 db = TinyDB('data.json')
 
 # for each table in the database create a csv file
-
 for table in db.tables():
     # create a dataframe
     df = pd.DataFrame(db.table(table).all())
@@ -49,4 +47,3 @@ formatted_data = pd.DataFrame({
 
 formatted_data.to_csv('formatted_data.csv', index=False)
 
-# %%

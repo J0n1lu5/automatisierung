@@ -2,48 +2,36 @@ import paho.mqtt.client as mqtt
 from database_storage import Database
 import json
 
+class MQTTClient:
+    def __init__(self, broker, port, topic):
+        self.broker = broker
+        self.port = port
+        self.topic = topic
+        self.data_db = Database('data.json')
+        self.client = mqtt.Client()
 
-broker = "158.180.44.197"
-port = 1883
-topic = "iot1/teaching_factory_fast/#"
+        self.client.username_pw_set("bobm", "letmein")
+        self.client.on_message = self.on_message
+        self.client.on_connect = self.on_connect
 
-print("Connecting to broker", broker)
+    def on_connect(self, client, userdata, flags, rc):
+        print(f"Connected with result code {rc}")
+        client.subscribe(self.topic)
 
-data_db = Database('data.json')
+    def on_message(self, client, userdata, message):
+        print("message received:")
+        print("message: ", message.payload.decode())
+        print("\n")
 
+        try:
+            data = json.loads(message.payload.decode())
+            self.data_db.store_data(data, message.topic)
+        except json.JSONDecodeError as e:
+            print(f"Failed to decode JSON: {e}")
 
-# create function for callback
-def on_message(client, userdata, message):
-    print("message received:")
-    print("message: ", message.payload.decode())
-    print("\n")
-    
-    # for jedes topic wird eine eigene Tabelle erstellt
+    def start(self):
+        self.client.connect(self.broker, self.port, 60)
+        self.client.loop_forever()
 
-    #db.insert(message.topic, message.payload.decode())
-    try:
-        data = json.loads(message.payload.decode())
-        #topic_name = json.loads(message.topic)
-        data_db.store_data(data, message.topic)
-    except json.JSONDecodeError as e:
-        print(f"Failed to decode JSON: {e}")
-
-# create client object
-mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-mqttc.username_pw_set("bobm", "letmein")              
-
-# assign function to callback
-mqttc.on_message = on_message                          
-
-# establish connection
-mqttc.connect(broker,port)                                 
-print("Connected to broker")
-# subscribe
-mqttc.subscribe(topic, qos=0)
-
-# Blocking call that processes network traffic, dispatches callbacks and handles reconnecting.
-#mqttc.loop_forever()
-
-while True:
-    mqttc.loop(0.5)
-    
+    def stop(self):
+        self.client.disconnect()
