@@ -1,34 +1,72 @@
 import pandas as pd
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.svm import SVR
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.preprocessing import StandardScaler
-
 
 class LinearRegressionModel:
     def __init__(self, csv_path):
         self.data = pd.read_csv(csv_path).dropna()
-        self.data = self.data.loc[:, ~self.data.columns.str.contains('^Unnamed')]  # Entferne Spalten, die mit 'Unnamed' beginnen
-        self.model = LinearRegression()
+        self.data = self.data.loc[:, ~self.data.columns.str.contains('^Unnamed')]
+        self.model = None
+        self.best_model_name = None
+        self.best_model = None
+        self.coefficients = None
+        self.intercept = None
 
     def train_model(self):
         y = self.data['final_weight_grams']
         X = self.data.drop(columns=['final_weight_grams'])
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        self.model.fit(self.X_train, self.y_train)
+        self.evaluate_models()
+
+    def evaluate_models(self):
+        results = []
+        y = self.data['final_weight_grams']
+        X = self.data.drop(columns=['final_weight_grams'])
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        models = {
+            'Linear': LinearRegression(),
+            'Ridge': Ridge(),
+            'SVR': SVR()
+        }
+
+        best_model_name = None
+        best_test_mse = float('inf')
+
+        for model_name, model in models.items():
+            model.fit(X_train, y_train)
+            y_pred_train = model.predict(X_train)
+            y_pred_test = model.predict(X_test)
+            train_mse = mean_squared_error(y_train, y_pred_train)
+            test_mse = mean_squared_error(y_test, y_pred_test)
+            results.append({
+                'Modell-Typ': model_name,
+                'MSE-Wert (Training)': train_mse,
+                'MSE-Wert (Test)': test_mse
+            })
+
+            if test_mse < best_test_mse:
+                best_test_mse = test_mse
+                best_model_name = model_name
+                self.best_model = model
+
+        self.best_model_name = best_model_name
+        self.coefficients = self.best_model.coef_ if hasattr(self.best_model, 'coef_') else None
+        self.intercept = self.best_model.intercept_ if hasattr(self.best_model, 'intercept_') else None
+        return results, best_model_name, best_test_mse
 
     def get_training_results(self):
-        coefficients = self.model.coef_
-        intercept = self.model.intercept_
-        train_mse, test_mse = self.calculate_mse()
+        if self.best_model is None:
+            raise ValueError("Model is not trained yet. Call train_model() first.")
+        train_mse, test_mse = self.calculate_mse(self.best_model)
         mse_df = self.calculate_feature_mse()
-        return coefficients, intercept, train_mse, test_mse, mse_df
+        return train_mse, test_mse, mse_df
 
-    def calculate_mse(self):
-        y_pred_train = self.model.predict(self.X_train)
-        y_pred_test = self.model.predict(self.X_test)
+    def calculate_mse(self, model):
+        y_pred_train = model.predict(self.X_train)
+        y_pred_test = model.predict(self.X_test)
         train_mse = mean_squared_error(self.y_train, y_pred_train)
         test_mse = mean_squared_error(self.y_test, y_pred_test)
         return train_mse, test_mse
@@ -49,9 +87,11 @@ class LinearRegressionModel:
         return mse_df
 
     def predict_final_weight(self, second_csv_path):
+        if self.best_model is None:
+            raise ValueError("Model is not trained yet. Call train_model() first.")
         second_data = pd.read_csv(second_csv_path)
-        second_data = second_data.loc[:, ~second_data.columns.str.contains('^Unnamed')]  # Entferne Spalten, die mit 'Unnamed' beginnen
-        predictions = self.model.predict(second_data)
+        second_data = second_data.loc[:, ~second_data.columns.str.contains('^Unnamed')]
+        predictions = self.best_model.predict(second_data)
         self.second_data_with_predictions = second_data.copy()
         self.second_data_with_predictions['predicted_final_weight'] = predictions
 
@@ -60,48 +100,8 @@ class LinearRegressionModel:
         self.second_data_with_predictions.to_csv(filename, index=False)
         return filename
 
-
-class ClassificationModel:
-    def __init__(self, csv_path):
-        self.data = pd.read_csv(csv_path).dropna()
-        self.data = self.data.loc[:,
-                    ~self.data.columns.str.contains('^Unnamed')]  # Entferne Spalten, die mit 'Unnamed' beginnen
-        self.model = RandomForestClassifier(random_state=42)
-
-    def train_model(self):
-        # Annahme: 'target' ist die Zielvariable (muss möglicherweise angepasst werden)
-        y = self.data['target']  # Ersetzen Sie 'target' durch den Namen Ihrer Zielvariablen
-        X = self.data.drop(columns=['target'])  # Ersetzen Sie 'target' durch den Namen Ihrer Zielvariablen
-        X = pd.get_dummies(X, drop_first=True)  # Kategorische Daten kodieren
-
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-        scaler = StandardScaler()
-        self.X_train = scaler.fit_transform(self.X_train)
-        self.X_test = scaler.transform(self.X_test)
-
-        self.model.fit(self.X_train, self.y_train)
-
-    def evaluate_model(self):
-        y_pred = self.model.predict(self.X_test)
-        accuracy = accuracy_score(self.y_test, y_pred)
-        report = classification_report(self.y_test, y_pred)
-        return accuracy, report
-
-    def predict(self, second_csv_path):
-        second_data = pd.read_csv(second_csv_path)
-        second_data = second_data.loc[:,
-                      ~second_data.columns.str.contains('^Unnamed')]  # Entferne Spalten, die mit 'Unnamed' beginnen
-        second_data = pd.get_dummies(second_data, drop_first=True)  # Kategorische Daten kodieren
-
-        # Skalieren der Daten
-        scaler = StandardScaler()
-        second_data_scaled = scaler.fit_transform(second_data)
-
-        predictions = self.model.predict(second_data_scaled)
-        self.second_data_with_predictions = second_data.copy()
-        self.second_data_with_predictions['predicted_class'] = predictions
-
-    def save_predictions(self, filename):
-        self.second_data_with_predictions.to_csv(filename, index=False)
-        return filename
+    def get_model_formula(self):
+        if self.coefficients is None or self.intercept is None:
+            raise ValueError("Model is not trained yet. Call train_model() first.")
+        formula = "y = " + " + ".join([f"{coef}*x{i}" for i, coef in enumerate(self.coefficients, start=1)]) + f" + {self.intercept}"
+        return formula

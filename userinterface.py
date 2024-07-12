@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import threading
 from mqtt_client import MQTTClient
 from database_storage import Database
@@ -7,13 +7,8 @@ from predict import LinearRegressionModel
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import pandas as pd
-from predict import ClassificationModel
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
-import subprocess
-import os
-import signal
+
+
 class MainApp(tk.Tk):
     def __init__(self, db_path):
         super().__init__()
@@ -27,9 +22,11 @@ class MainApp(tk.Tk):
         self.mqtt_settings = {
             "broker": "158.180.44.197",
             "port": 1883,
-            "topic": "iot1/teaching_factory_fast/#"
+            "topic": "iot1/teaching_factory_fast/#",
+            "username": "bobm",
+            "password": "letmein"
         }
-        for F in (StartPage, MQTTConfigPage, PlotPage, PredictionPage, ClassificationPage):
+        for F in (StartPage, MQTTConfigPage, PlotPage, PredictionPage):
             page_name = F.__name__
             frame = F(parent=self, controller=self)
             self.frames[page_name] = frame
@@ -37,32 +34,21 @@ class MainApp(tk.Tk):
 
         self.show_frame("StartPage")
 
-        self.mqtt_process = None
-
     def show_frame(self, page_name):
         frame = self.frames[page_name]
         frame.tkraise()
         if page_name == "PlotPage":
             frame.update_table_options()
 
-    def update_mqtt_settings(self, broker, port, topic):
+    def update_mqtt_settings(self, broker, port, topic, username, password):
         self.mqtt_settings["broker"] = broker
         self.mqtt_settings["port"] = int(port)
         self.mqtt_settings["topic"] = topic
+        self.mqtt_settings["username"] = username
+        self.mqtt_settings["password"] = password
 
-    def start_mqtt_receiver(self):
-        if self.mqtt_process is None:
-            broker = self.mqtt_settings["broker"]
-            port = self.mqtt_settings["port"]
-            topic = self.mqtt_settings["topic"]
-            self.mqtt_process = subprocess.Popen(["python", "mqtt_client.py", broker, str(port), topic])
-            print("Started MQTT Receiver")
-
-    def stop_mqtt_receiver(self):
-        if self.mqtt_process is not None:
-            os.kill(self.mqtt_process.pid, signal.SIGINT)
-            self.mqtt_process = None
-            print("Stopped MQTT Receiver")
+    def on_connection_lost(self):
+        messagebox.showerror("MQTT Error", "Lost connection to the MQTT broker!")
 
 class StartPage(tk.Frame):
     def __init__(self, parent, controller):
@@ -73,14 +59,14 @@ class StartPage(tk.Frame):
         label = tk.Label(self, text="Willkommen! Wählen Sie eine Seite:", font=("Helvetica", 16), bg='#f0f0f0')
         label.pack(pady=20)
 
+        # Create a container frame to hold the buttons
         button_container = tk.Frame(self, bg='#f0f0f0')
         button_container.pack(pady=20, fill="both", expand=True)
 
         buttons = [
             ("MQTT Config", "MQTTConfigPage"),
             ("Plot", "PlotPage"),
-            ("Prediction", "PredictionPage"),
-            ("Classification", "ClassificationPage")
+            ("Prediction", "PredictionPage")
         ]
 
         for i, (text, page) in enumerate(buttons):
@@ -89,14 +75,17 @@ class StartPage(tk.Frame):
                                activeforeground="white", width=15, height=2)
             button.grid(row=i, column=0, pady=5, padx=5, sticky="w")
 
+        # Toggle Button für Start/Stop Recording
         self.is_recording = False
         self.toggle_button = tk.Button(button_container, text="Start Recording", command=self.toggle_recording,
                                        font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
                                        activeforeground="white", width=20, height=2)
         self.toggle_button.grid(row=0, column=1, pady=5, padx=5, sticky="e")
 
+        # Compute recording button
         self.compute_button = tk.Button(button_container, text="Compute Data", command=self.compute,
-                                        font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
+                                        font=("Helvetica", 12),
+                                        bg="#4CAF50", fg="white", activebackground="#45a049",
                                         activeforeground="white", width=20, height=2)
         self.compute_button.grid(row=1, column=1, pady=5, padx=5, sticky="e")
 
@@ -104,15 +93,32 @@ class StartPage(tk.Frame):
         self.is_recording = not self.is_recording
         if self.is_recording:
             self.toggle_button.config(text="Stop Recording", bg="#FF6347", activebackground="#FF4500")
-            self.controller.start_mqtt_receiver()
+            self.start_recording()
         else:
             self.toggle_button.config(text="Start Recording", bg="#4CAF50", activebackground="#45a049")
-            self.controller.stop_mqtt_receiver()
+            self.stop_recording()
 
     def compute(self):
         print("Computing Data...")
         Format_data = Database('data.json')
         Format_data.format_data()
+
+    def start_recording(self):
+        broker = self.controller.mqtt_settings["broker"]
+        port = self.controller.mqtt_settings["port"]
+        topic = self.controller.mqtt_settings["topic"]
+        username = self.controller.mqtt_settings["username"]
+        password = self.controller.mqtt_settings["password"]
+        self.mqtt_client = MQTTClient(broker, port, topic, username, password)
+        self.mqtt_client.client.on_disconnect = self.controller.on_connection_lost
+        self.mqtt_thread = threading.Thread(target=self.mqtt_client.start)
+        self.mqtt_thread.start()
+
+    def stop_recording(self):
+        if hasattr(self, 'mqtt_client'):
+            self.mqtt_client.stop()
+            self.mqtt_thread.join()
+
 
 class MQTTConfigPage(tk.Frame):
     def __init__(self, parent, controller):
@@ -144,11 +150,23 @@ class MQTTConfigPage(tk.Frame):
         self.topic_entry.grid(row=2, column=1, pady=5)
         self.topic_entry.insert(0, controller.mqtt_settings["topic"])
 
+        tk.Label(entry_frame, text="Username:", font=("Helvetica", 12), bg='#f0f0f0').grid(row=3, column=0, pady=5,
+                                                                                           sticky="e")
+        self.username_entry = tk.Entry(entry_frame, font=("Helvetica", 12), width=30)
+        self.username_entry.grid(row=3, column=1, pady=5)
+        self.username_entry.insert(0, controller.mqtt_settings["username"])
+
+        tk.Label(entry_frame, text="Password:", font=("Helvetica", 12), bg='#f0f0f0').grid(row=4, column=0, pady=5,
+                                                                                           sticky="e")
+        self.password_entry = tk.Entry(entry_frame, font=("Helvetica", 12), show='*', width=30)
+        self.password_entry.grid(row=4, column=1, pady=5)
+        self.password_entry.insert(0, controller.mqtt_settings["password"])
+
         # Submit button
         submit_button = tk.Button(entry_frame, text="Submit", command=self.submit, font=("Helvetica", 12),
                                   bg="#4CAF50", fg="white", activebackground="#45a049",
                                   activeforeground="white", width=20, height=2)
-        submit_button.grid(row=3, column=0, columnspan=2, pady=10)
+        submit_button.grid(row=5, column=0, columnspan=2, pady=10)
 
         button = tk.Button(self, text="Zurück zur Startseite", command=lambda: controller.show_frame("StartPage"),
                            font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
@@ -159,8 +177,11 @@ class MQTTConfigPage(tk.Frame):
         broker_address = self.broker_address_entry.get()
         port = self.port_entry.get()
         topic = self.topic_entry.get()
-        self.controller.update_mqtt_settings(broker_address, port, topic)
-        print(f"Updated MQTT settings: Broker Address: {broker_address}, Port: {port}, Topic: {topic}")
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        self.controller.update_mqtt_settings(broker_address, port, topic, username, password)
+        print(f"Updated MQTT settings: Broker Address: {broker_address}, Port: {port}, Topic: {topic}, Username: {username}, Password: {'*' * len(password)}")
+
 
 class PlotPage(tk.Frame):
     def __init__(self, parent, controller):
@@ -293,6 +314,15 @@ class PredictionPage(tk.Frame):
 
         self.save_button.pack(pady=10)
 
+        self.mse_table_frame = tk.Frame(self, bg='#f0f0f0')
+        self.mse_table_frame.pack(pady=10)
+
+        self.best_model_label = tk.Label(self, text="", font=("Helvetica", 12), bg='#f0f0f0')
+        self.best_model_label.pack(pady=10)
+
+        self.model_formula_label = tk.Label(self, text="", font=("Helvetica", 12), bg='#f0f0f0')
+        self.model_formula_label.pack(pady=10)
+
         button = tk.Button(self, text="Zurück zur Startseite", command=lambda: controller.show_frame("StartPage"),
                            font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
                            activeforeground="white", width=20, height=2)
@@ -309,15 +339,16 @@ class PredictionPage(tk.Frame):
     def train_model(self):
         if self.model:
             self.model.train_model()
-            coefficients, intercept, train_mse, test_mse, mse_df = self.model.get_training_results()
+            train_mse, test_mse, mse_df = self.model.get_training_results()
 
             self.result_label.config(
-                text=f"Model trained successfully.\nCoefficients: {coefficients}\nIntercept: {intercept}\nTrain MSE: {train_mse}\nTest MSE: {test_mse}")
+                text=f"Model trained successfully.\nTrain MSE: {train_mse}\nTest MSE: {test_mse}")
             self.save_button.config(state='normal')
             self.upload_second_button.config(state='normal')
 
-            # Display MSE values in a table
             self.show_mse_table(mse_df)
+            self.show_model_comparison_table()
+            self.show_model_formula()
 
     def show_mse_table(self, mse_df):
         table_frame = tk.Frame(self, bg='#f0f0f0')
@@ -331,6 +362,28 @@ class PredictionPage(tk.Frame):
             tree.insert('', tk.END, values=(row['Feature'], row['MSE']))
 
         tree.pack()
+
+    def show_model_comparison_table(self):
+        results, best_model_name, best_test_mse = self.model.evaluate_models()
+
+        table_frame = tk.Frame(self.mse_table_frame, bg='#f0f0f0')
+        table_frame.pack(pady=10)
+
+        tree = ttk.Treeview(table_frame, columns=('Modell-Typ', 'MSE-Wert (Training)', 'MSE-Wert (Test)'), show='headings')
+        tree.heading('Modell-Typ', text='Modell-Typ')
+        tree.heading('MSE-Wert (Training)', text='MSE-Wert (Training)')
+        tree.heading('MSE-Wert (Test)', text='MSE-Wert (Test)')
+
+        for result in results:
+            tree.insert('', tk.END, values=(result['Modell-Typ'], result['MSE-Wert (Training)'], result['MSE-Wert (Test)']))
+
+        tree.pack()
+
+        self.best_model_label.config(text=f"Best Model: {best_model_name} with Test MSE: {best_test_mse}")
+
+    def show_model_formula(self):
+        formula = self.model.get_model_formula()
+        self.model_formula_label.config(text=f"Model Formula: {formula}")
 
     def upload_second_csv(self):
         file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
@@ -352,91 +405,9 @@ class PredictionPage(tk.Frame):
             self.result_label.config(text=f"Predictions saved successfully as {filename}")
 
     def get_matriculation_numbers(self):
-        # Replace this with the actual logic to get matriculation numbers from user input
+        # change later first its hardcoded
         return ['123456', '654321', '112233']
-class ClassificationPage(tk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.controller = controller
-        self.configure(bg='#f0f0f0')
 
-        label = tk.Label(self, text="Classification", font=("Helvetica", 16), bg='#f0f0f0')
-        label.pack(pady=20)
-
-        self.model = None
-        self.csv_path = None
-        self.second_csv_path = None
-
-        self.upload_button = tk.Button(self, text="Upload Training CSV", command=self.upload_csv,
-                                       font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
-                                       activeforeground="white", width=20, height=2)
-        self.upload_button.pack(pady=10)
-
-        self.train_button = tk.Button(self, text="Train Model", command=self.train_model, state='disabled',
-                                      font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
-                                      activeforeground="white", width=20, height=2)
-        self.train_button.pack(pady=10)
-
-        self.result_label = tk.Label(self, text="", font=("Helvetica", 12), bg='#f0f0f0')
-        self.result_label.pack(pady=10)
-
-        self.upload_second_button = tk.Button(self, text="Upload Prediction CSV", command=self.upload_second_csv,
-                                              state='disabled',
-                                              font=("Helvetica", 12), bg="#4CAF50", fg="white",
-                                              activebackground="#45a049",
-                                              activeforeground="white", width=20, height=2)
-        self.upload_second_button.pack(pady=10)
-
-        self.predict_button = tk.Button(self, text="Predict Class", command=self.predict_class,
-                                        state='disabled',
-                                        font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
-                                        activeforeground="white", width=20, height=2)
-        self.predict_button.pack(pady=10)
-
-        self.save_button = tk.Button(self, text="Save Predictions", command=self.save_predictions, state='disabled',
-                                     font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
-                                     activeforeground="white", width=20, height=2)
-        self.save_button.pack(pady=10)
-
-        button = tk.Button(self, text="Zurück zur Startseite", command=lambda: controller.show_frame("StartPage"),
-                           font=("Helvetica", 12), bg="#4CAF50", fg="white", activebackground="#45a049",
-                           activeforeground="white", width=20, height=2)
-        button.pack(pady=10)
-
-    def upload_csv(self):
-        file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
-        if file_path:
-            self.csv_path = file_path
-            self.model = ClassificationModel(self.csv_path)
-            self.train_button.config(state='normal')
-            self.result_label.config(text="Training CSV file uploaded successfully.")
-
-    def train_model(self):
-        if self.model:
-            self.model.train_model()
-            accuracy, report = self.model.evaluate_model()
-            self.result_label.config(
-                text=f"Model trained successfully.\nAccuracy: {accuracy}\nClassification Report:\n{report}")
-            self.upload_second_button.config(state='normal')
-
-    def upload_second_csv(self):
-        file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
-        if file_path:
-            self.second_csv_path = file_path
-            self.predict_button.config(state='normal')
-            self.result_label.config(text="Prediction CSV file uploaded successfully.")
-
-    def predict_class(self):
-        if self.model and self.second_csv_path:
-            self.model.predict(self.second_csv_path)
-            self.result_label.config(text="Predictions made successfully.")
-            self.save_button.config(state='normal')
-
-    def save_predictions(self):
-        if self.model:
-            filename = 'classification_predictions.csv'
-            self.model.save_predictions(filename)
-            self.result_label.config(text=f"Predictions saved successfully as {filename}")
 
 if __name__ == "__main__":
     app = MainApp('formatted_data.json')  # Specify the path to your database here
