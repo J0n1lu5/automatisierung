@@ -1,7 +1,8 @@
 import paho.mqtt.client as mqtt
 from database_storage import Database
 import json
-
+import threading
+import time
 
 class MQTTClient:
     def __init__(self, broker, port, topic, username=None, password=None):
@@ -20,6 +21,11 @@ class MQTTClient:
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
 
+        self.last_message_time = time.time()
+        self.timeout = 20  # 20 seconds timeout
+        self.check_timeout_thread = threading.Thread(target=self.check_timeout)
+        self.on_timeout_callback = None
+
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             print("Connected successfully.")
@@ -37,6 +43,8 @@ class MQTTClient:
         print("message: ", message.payload.decode())
         print("\n")
 
+        self.last_message_time = time.time()  # Update the last message time
+
         try:
             data = json.loads(message.payload.decode())
             self.data_db.store_data(data, message.topic)
@@ -46,9 +54,21 @@ class MQTTClient:
     def start(self):
         try:
             self.client.connect(self.broker, self.port, 60)
+            self.check_timeout_thread.start()
             self.client.loop_forever()
         except Exception as e:
             print(f"Error connecting to MQTT broker: {e}")
 
     def stop(self):
         self.client.disconnect()
+
+    def check_timeout(self):
+        while True:
+            if time.time() - self.last_message_time > self.timeout:
+                if self.on_timeout_callback:
+                    self.on_timeout_callback()
+                break
+            time.sleep(1)
+
+    def set_on_timeout_callback(self, callback):
+        self.on_timeout_callback = callback

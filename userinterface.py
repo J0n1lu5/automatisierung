@@ -50,6 +50,9 @@ class MainApp(tk.Tk):
     def on_connection_lost(self):
         messagebox.showerror("MQTT Error", "Lost connection to the MQTT broker!")
 
+    def on_timeout(self):
+        messagebox.showerror("MQTT Timeout", "No messages received for 20 seconds!")
+
 class StartPage(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
@@ -110,6 +113,7 @@ class StartPage(tk.Frame):
         username = self.controller.mqtt_settings["username"]
         password = self.controller.mqtt_settings["password"]
         self.mqtt_client = MQTTClient(broker, port, topic, username, password)
+        self.mqtt_client.set_on_timeout_callback(self.controller.on_timeout)
         self.mqtt_client.client.on_disconnect = self.controller.on_connection_lost
         self.mqtt_thread = threading.Thread(target=self.mqtt_client.start)
         self.mqtt_thread.start()
@@ -406,7 +410,7 @@ class PredictionPage(tk.Frame):
 
     def get_matriculation_numbers(self):
         # change later first its hardcoded
-        return ['123456', '654321', '112233']
+        return ['2110602034', '654321', '112233']
 
 
 if __name__ == "__main__":
