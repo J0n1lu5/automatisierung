@@ -2,6 +2,7 @@
 
 ## Inhaltsverzeichnis
 - [Übersicht](#übersicht)
+- [SPS](#SPS)
 - [Installation](#installation)
 - [Verwendung](#verwendung)
   - [database_storage.py](#database_storagepy)
@@ -15,6 +16,9 @@
 
 ## Übersicht
 Dieses Projekt befasst sich mit der Automatisierung von Datenverarbeitungs- und Vorhersageprozessen. Es umfasst verschiedene Module, die Daten auslesen, formatieren, vorhersagen und über eine Benutzeroberfläche präsentieren.
+
+## SPS
+Auf der Seite der SPS gibt es einen Funktionsbaustein, der dafür verantwortlich ist, in zeitlich definierten Abständen die vorgegebenen Werte über MQTT zu senden. Dieser Funktionsbaustein konfiguriert einen MQTT-Client, einschließlich Hostname, Port, Themenpräfix, Client-ID sowie Benutzername und Passwort, und stellt die Verbindung her. Sobald die Verbindung besteht, überprüft der Funktionsbaustein kontinuierlich die Verbindung und sendet in regelmäßigen Abständen die aktuellen Werte, wie die Raumtemperatur, wenn der Intervall-Timer abgelaufen ist. Dies gewährleistet eine zuverlässige und zeitlich gesteuerte Datenübertragung.
 
 ### Komponenten:
 - **Datenspeicherung**: Skript zum Speichern und Laden von Daten im JSON-Format.
