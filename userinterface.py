@@ -410,7 +410,7 @@ class PredictionPage(tk.Frame):
 
     def get_matriculation_numbers(self):
         # change later first its hardcoded
-        return ['2110602034', '654321', '112233']
+        return ['52113578', '52216040', '52216060']
 
 
 if __name__ == "__main__":
