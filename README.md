@@ -21,7 +21,7 @@ Dieses Projekt befasst sich mit der Automatisierung von Datenverarbeitungs- und 
 ## SPS
 Auf der Seite der SPS gibt es einen Funktionsbaustein, der dafür verantwortlich ist, in zeitlich definierten Abständen die vorgegebenen Werte über MQTT zu senden. Dieser Funktionsbaustein konfiguriert einen MQTT-Client, einschließlich Hostname, Port, Themenpräfix, Client-ID sowie Benutzername und Passwort, und stellt die Verbindung her. Sobald die Verbindung besteht, überprüft der Funktionsbaustein kontinuierlich die Verbindung und sendet in regelmäßigen Abständen die aktuellen Werte, wie die Raumtemperatur, wenn der Intervall-Timer abgelaufen ist. Dies gewährleistet eine zuverlässige und zeitlich gesteuerte Datenübertragung.
 
-## Komponenten:
+## Komponenten
 - **Datenspeicherung**: Skript zum Speichern und Laden von Daten im JSON-Format.
 - **MQTT-Kommunikation**: Skript zum Verbinden mit einem MQTT-Broker, Abonnieren von Themen und Veröffentlichen von Nachrichten.
 - **Prädiktive Modellierung**: Skript zum Trainieren und Verwenden eines prädiktiven Modells.
